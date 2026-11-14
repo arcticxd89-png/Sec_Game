@@ -1,9 +1,9 @@
 {
-  "projectId": "72904406",
+  "projectId": "72904586",
   "functions": {
     "game-action": {
       "hasChanged": false,
-      "hash": "dbe167a8545ed1deb649d07bb93b634a7d3287b7ae96791c12163cd97d2dbed8"
+      "hash": "5847e35012eb3a5410ba5a454a3511a71ca66a889c8fb65a2c3d59da3658d8b1"
     }
   }
 }
