@@ -1,5 +1,5 @@
 import { createClient } from "npm:@supabase/supabase-js@2.57.4";
-import { RIDDLES, isCorrectAnswer } from "./riddles.ts";
+import { RIDDLES, RIDDLE_HINT_COST, isCorrectAnswer } from "./riddles.ts";
 import { KOLAM_PATTERNS, isCorrectKolamAnswer } from "./kolams.ts";
 
 const corsHeaders = {
@@ -766,7 +766,7 @@ Deno.serve(async (req: Request) => {
       }
 
       const { data: trap } = await supabase
-        .from("riddle_traps").select("id, owner_team_id, riddle_index")
+        .from("riddle_traps").select("id, owner_team_id, riddle_index, wrong_attempts, hint_purchased")
         .eq("target_team_id", teamId).eq("status", "armed")
         .order("created_at").limit(1).maybeSingle();
       if (!trap) return json({ trap: null });
@@ -779,6 +779,9 @@ Deno.serve(async (req: Request) => {
           id: trap.id,
           ownerName: owner?.name ?? "A rival team",
           question: riddle.question,
+          wrongAttempts: trap.wrong_attempts,
+          hintCost: RIDDLE_HINT_COST,
+          hint: trap.hint_purchased ? riddle.hint : null,
         },
       });
     }
@@ -797,13 +800,19 @@ Deno.serve(async (req: Request) => {
       }
 
       const { data: trap } = await supabase
-        .from("riddle_traps").select("id, riddle_index")
+        .from("riddle_traps").select("id, riddle_index, wrong_attempts")
         .eq("id", trapId).eq("target_team_id", teamId).eq("status", "armed")
         .maybeSingle();
       if (!trap) return json({ error: "No open riddle to answer" }, 404);
 
       const riddle = RIDDLES[trap.riddle_index] ?? RIDDLES[0];
-      if (!isCorrectAnswer(riddle, answer)) return json({ correct: false });
+      if (!isCorrectAnswer(riddle, answer)) {
+        const wrongAttempts = trap.wrong_attempts + 1;
+        await supabase.from("riddle_traps")
+          .update({ wrong_attempts: wrongAttempts })
+          .eq("id", trap.id).eq("status", "armed");
+        return json({ correct: false, wrongAttempts });
+      }
 
       const { data: solved, error: solveError } = await supabase
         .from("riddle_traps")
@@ -813,6 +822,52 @@ Deno.serve(async (req: Request) => {
       if (solveError || !solved) return json({ error: "This riddle was already answered" }, 409);
 
       return json({ correct: true });
+    }
+
+    // ── RIDDLE TRAP: buy the hint after a wrong answer (costs Diyas, once per riddle) ──
+    if (action === "riddle-hint") {
+      const { teamId, sessionToken, trapId } = body;
+      if (!teamId || !trapId) return json({ error: "Missing parameters" }, 400);
+
+      if (sessionToken) {
+        const { data: validId } = await supabase.rpc("validate_session", { p_token: sessionToken });
+        if (!validId || validId !== teamId) {
+          return json({ error: "Session expired — please log in again" }, 401);
+        }
+      }
+
+      const { data: trap } = await supabase
+        .from("riddle_traps").select("id, riddle_index, wrong_attempts, hint_purchased")
+        .eq("id", trapId).eq("target_team_id", teamId).eq("status", "armed")
+        .maybeSingle();
+      if (!trap) return json({ error: "No open riddle to get a hint for" }, 404);
+
+      const riddle = RIDDLES[trap.riddle_index] ?? RIDDLES[0];
+      if (trap.hint_purchased) return json({ hint: riddle.hint });
+      if (trap.wrong_attempts < 1) return json({ error: "Answer the riddle once before buying a hint" }, 400);
+
+      const { data: team } = await supabase
+        .from("teams").select("id, balance").eq("id", teamId).maybeSingle();
+      if (!team) return json({ error: "Team not found" }, 404);
+      if (team.balance < RIDDLE_HINT_COST)
+        return json({ error: `You need ${RIDDLE_HINT_COST} Diyas to buy a hint` }, 400);
+
+      const { data: claimed, error: claimError } = await supabase
+        .from("riddle_traps")
+        .update({ hint_purchased: true })
+        .eq("id", trap.id).eq("status", "armed").eq("hint_purchased", false)
+        .select("id").maybeSingle();
+      if (claimError) return json({ error: "Could not buy the hint. Please try again." }, 500);
+      if (!claimed) return json({ hint: riddle.hint });
+
+      const newBalance = team.balance - RIDDLE_HINT_COST;
+      await supabase.from("transactions").insert({
+        team_id: teamId, amount: -RIDDLE_HINT_COST, type: "special",
+        note: "Bought a riddle hint",
+      });
+      await supabase.from("teams").update({ balance: newBalance }).eq("id", teamId);
+
+      return json({ hint: riddle.hint, newBalance });
     }
 
     // ── KOLAM LOCK: fetch the open lock for a team ──

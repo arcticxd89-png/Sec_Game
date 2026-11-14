@@ -470,6 +470,7 @@ export function PlayerGame({
           teamId={teamId}
           sessionToken={sessionToken}
           riddle={openRiddle}
+          onHintBought={loadData}
           onSolved={() => {
             setOpenRiddle(null);
             setRewardPopup('Riddle solved! You can roll again.');

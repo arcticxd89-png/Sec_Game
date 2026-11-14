@@ -40,6 +40,8 @@ export const gameApi = {
     callAction('riddle-status', { teamId, sessionToken }),
   riddleAnswer: (teamId: string, trapId: string, answer: string, sessionToken?: string) =>
     callAction('riddle-answer', { teamId, trapId, answer, sessionToken }),
+  riddleHint: (teamId: string, trapId: string, sessionToken?: string) =>
+    callAction('riddle-hint', { teamId, trapId, sessionToken }),
   kolamStatus: (teamId: string, sessionToken?: string) =>
     callAction('kolam-status', { teamId, sessionToken }),
   kolamAnswer: (teamId: string, lockId: string, answer: string, sessionToken?: string) =>

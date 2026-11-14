@@ -1,11 +1,14 @@
 import { useState, type FormEvent } from 'react';
 import { gameApi } from '@/lib/api';
-import { Puzzle, Send, Loader2 } from 'lucide-react';
+import { Puzzle, Send, Loader2, Lightbulb } from 'lucide-react';
 
 export interface OpenRiddle {
   id: string;
   ownerName: string;
   question: string;
+  wrongAttempts: number;
+  hintCost: number;
+  hint: string | null;
 }
 
 export function RiddleTrapModal({
@@ -13,16 +16,24 @@ export function RiddleTrapModal({
   sessionToken,
   riddle,
   onSolved,
+  onHintBought,
 }: {
   teamId: string;
   sessionToken: string;
   riddle: OpenRiddle;
   onSolved: () => void;
+  onHintBought: () => void;
 }) {
   const [answer, setAnswer] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [wrong, setWrong] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [boughtHint, setBoughtHint] = useState<string | null>(null);
+  const [buyingHint, setBuyingHint] = useState(false);
+  const [hintError, setHintError] = useState<string | null>(null);
+
+  const hint = boughtHint ?? riddle.hint;
+  const canBuyHint = !hint && (wrong || riddle.wrongAttempts > 0);
 
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -43,6 +54,21 @@ export function RiddleTrapModal({
     setSubmitting(false);
   }
 
+  async function handleBuyHint() {
+    if (buyingHint) return;
+    setBuyingHint(true);
+    setHintError(null);
+    try {
+      const result = await gameApi.riddleHint(teamId, riddle.id, sessionToken);
+      if (typeof result.hint !== 'string') throw new Error('Could not load the hint. Please try again.');
+      setBoughtHint(result.hint);
+      onHintBought();
+    } catch (err) {
+      setHintError((err as Error).message);
+    }
+    setBuyingHint(false);
+  }
+
   return (
     <div className="fixed inset-0 z-50 bg-maroon-950/95 flex items-center justify-center p-4">
       <div className="w-full max-w-md festive-card rounded-3xl p-6 space-y-5 animate-pop-in">
@@ -61,6 +87,16 @@ export function RiddleTrapModal({
         <div className="rounded-2xl bg-maroon-950/60 border border-gold-500/30 px-5 py-4">
           <p className="text-gold-100 font-display text-lg leading-snug">{riddle.question}</p>
         </div>
+
+        {hint && (
+          <div className="rounded-2xl bg-gold-400/10 border border-gold-400/40 px-5 py-4 flex gap-3 items-start animate-pop-in">
+            <Lightbulb className="w-5 h-5 text-gold-300 shrink-0 mt-0.5" />
+            <div>
+              <p className="text-xs uppercase tracking-wide text-gold-300/80 font-semibold">Hint</p>
+              <p className="text-gold-100 text-sm leading-relaxed mt-1">{hint}</p>
+            </div>
+          </div>
+        )}
 
         <form onSubmit={handleSubmit} className="space-y-3">
           <input
@@ -90,6 +126,23 @@ export function RiddleTrapModal({
             {submitting ? 'Checking...' : 'Submit answer'}
           </button>
         </form>
+
+        {canBuyHint && (
+          <div className="space-y-2">
+            <button
+              type="button"
+              onClick={handleBuyHint}
+              disabled={buyingHint}
+              className="w-full rounded-xl py-3 border border-gold-400/50 text-gold-200 font-semibold flex items-center justify-center gap-2 hover:bg-gold-400/10 disabled:opacity-50 active:scale-95 transition"
+            >
+              {buyingHint ? <Loader2 className="w-4 h-4 animate-spin" /> : <Lightbulb className="w-4 h-4" />}
+              {buyingHint ? 'Buying hint...' : `Buy hint for ${riddle.hintCost} Diyas`}
+            </button>
+            {hintError && (
+              <p className="text-marigold-300 text-sm text-center">{hintError}</p>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
